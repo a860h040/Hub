@@ -64,7 +64,7 @@
       <div class="card search-card">
         <span class="eyebrow">Media lookup</span>
         <h2>Open a file or stream</h2>
-        <p class="lead">Paste a full media URL. The page will now try that exact URL first instead of only extracting the file number. You can also open a synchronized GitHub copy by file number.</p>
+        <p class="lead">Paste a full media URL. If it is an insecure HTTP link, the page automatically tries the HTTPS version first. If direct playback fails, it checks for the matching synchronized GitHub copy.</p>
 
         <div class="field">
           <label for="serverUrl">Direct media URL</label>
@@ -158,6 +158,8 @@
 
     let currentUrl = "";
     let currentName = "";
+    let currentSourceKind = "";
+    let directFallbackAttempted = false;
 
     function showStatus(message, type=""){
       statusBox.textContent = message;
@@ -178,7 +180,7 @@
       }catch(e){return null}
     }
 
-    function choosePreview(url,name,ext){
+    function choosePreview(url,name,ext,sourceKind=""){
       frame.style.display="none";
       imagePreview.style.display="none";
       videoPreview.style.display="none";
@@ -194,6 +196,7 @@
 
       currentUrl=url;
       currentName=name || "media";
+      currentSourceKind=sourceKind || "";
       viewerName.textContent=currentName;
       viewerPath.textContent=url;
       emptyState.style.display="none";
@@ -215,7 +218,7 @@
     }
 
     function resetViewer(){
-      currentUrl="";currentName="";
+      currentUrl="";currentName="";currentSourceKind="";directFallbackAttempted=false;
       frame.src="about:blank";frame.style.display="none";
       imagePreview.removeAttribute("src");imagePreview.style.display="none";
       videoPreview.pause();videoPreview.removeAttribute("src");videoPreview.load();videoPreview.style.display="none";
@@ -230,19 +233,42 @@
       const info=mediaInfo(raw);
       if(!info){
         showStatus("Paste a valid http:// or https:// media URL.","bad");
-        serverUrl.focus();return;
+        serverUrl.focus();
+        return;
       }
+
+      directFallbackAttempted=false;
 
       const baseName=info.name.replace(/\.[A-Za-z0-9]+$/,"");
       if(safeFileNumber(baseName)) fileNumber.value=baseName;
       if([...extension.options].some(o=>o.value===info.ext)) extension.value=info.ext;
 
-      choosePreview(info.url,info.name,info.ext);
+      // GitHub Pages is HTTPS. Browsers block HTTP media as mixed content.
+      // When an HTTP URL is pasted, try the same host/path over HTTPS first.
+      let playableUrl=info.url;
+      let usedHttpsUpgrade=false;
 
       if(location.protocol==="https:" && info.protocol==="http:"){
-        showStatus("Trying the original HTTP stream. If the browser blocks mixed content or your network blocks that server, use New tab or a GitHub-hosted copy.","warn");
+        try{
+          const secure=new URL(info.url);
+          secure.protocol="https:";
+          playableUrl=secure.href;
+          usedHttpsUpgrade=true;
+        }catch(e){}
+      }
+
+      choosePreview(playableUrl,info.name,info.ext,"direct");
+
+      if(usedHttpsUpgrade){
+        showStatus(
+          "This page is HTTPS, so the original HTTP stream cannot be embedded. I am automatically trying the HTTPS version now. If it fails, I will check the matching GitHub copy.",
+          "warn"
+        );
       }else if(info.ext===".mkv"){
-        showStatus("Trying the MKV stream. MKV playback depends on the browser and the video's codecs.","warn");
+        showStatus(
+          "Trying the MKV stream. If this browser cannot decode the MKV/codecs, I will check the matching GitHub copy.",
+          "warn"
+        );
       }else{
         showStatus("Trying the direct stream…","good");
       }
@@ -262,7 +288,7 @@
       try{
         const response=await fetch(url,{method:"HEAD",cache:"no-store"});
         if(!response.ok) throw new Error();
-        choosePreview(url,name,ext);
+        choosePreview(url,name,ext,"github");
         showStatus("GitHub copy found and opened.","good");
       }catch(e){
         showStatus("No GitHub copy found at "+FILE_FOLDER+"/"+name+".","bad");
@@ -275,12 +301,58 @@
       showStatus("Video loaded. Press Play if it did not start automatically.","good");
     });
 
-    videoPreview.addEventListener("error",()=>{
+    videoPreview.addEventListener("error",async()=>{
       const info=mediaInfo(currentUrl);
+
+      // If the direct/secure version failed, automatically look for
+      // files/<number>.<extension> in this GitHub Pages site.
+      if(currentSourceKind==="direct" && !directFallbackAttempted){
+        directFallbackAttempted=true;
+
+        const number=fileNumber.value.trim();
+        const ext=extension.value;
+
+        if(number && safeFileNumber(number)){
+          const githubUrl=buildFileUrl(number,ext);
+          const githubName=number+ext;
+
+          showStatus(
+            "The direct stream did not play. Checking for the synchronized GitHub copy: " +
+            FILE_FOLDER + "/" + githubName + "…",
+            "warn"
+          );
+
+          try{
+            const response=await fetch(githubUrl,{method:"HEAD",cache:"no-store"});
+            if(response.ok){
+              choosePreview(githubUrl,githubName,ext,"github");
+              showStatus(
+                "The direct stream was unavailable, so I opened the GitHub copy instead.",
+                "good"
+              );
+              return;
+            }
+          }catch(e){}
+        }
+      }
+
       if(info && info.ext===".mkv"){
-        showStatus("The browser could not play this MKV stream. This can happen because MKV/codecs are unsupported, HTTP is blocked on this HTTPS page, or the original server is unreachable from this network. New tab may still work in an external player.","bad");
+        if(currentSourceKind==="github"){
+          showStatus(
+            "The GitHub copy was found, but this browser still cannot decode this MKV file. MKV is a container; playback depends on the video/audio codecs inside it. MP4 (H.264/AAC) or WebM is more browser-compatible.",
+            "bad"
+          );
+        }else{
+          showStatus(
+            "The secure version of this MKV stream could not be played, and no playable GitHub copy was available. The original HTTP stream cannot be embedded inside this HTTPS page.",
+            "bad"
+          );
+        }
       }else{
-        showStatus("The browser could not load this media URL. The server may be blocked, unavailable, or refusing browser playback.","bad");
+        showStatus(
+          "The browser could not load this media. The secure source may be unavailable, blocked, or unsupported.",
+          "bad"
+        );
       }
     });
 
