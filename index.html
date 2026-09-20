@@ -217,12 +217,25 @@
       }
     }
 
+    function showViewerMessage(icon,title,detail){
+      frame.style.display="none";
+      imagePreview.style.display="none";
+      videoPreview.pause();
+      videoPreview.style.display="none";
+      const inner=emptyState.querySelector(".empty-inner");
+      inner.innerHTML =
+        '<div class="empty-icon">'+icon+'</div>' +
+        '<strong>'+title+'</strong>' +
+        '<p>'+detail+'</p>';
+      emptyState.style.display="grid";
+    }
+
     function resetViewer(){
       currentUrl="";currentName="";currentSourceKind="";directFallbackAttempted=false;
       frame.src="about:blank";frame.style.display="none";
       imagePreview.removeAttribute("src");imagePreview.style.display="none";
       videoPreview.pause();videoPreview.removeAttribute("src");videoPreview.load();videoPreview.style.display="none";
-      emptyState.style.display="grid";
+      showViewerMessage("▶️","Your media will appear here","Paste the full video URL and click <b>Play pasted URL</b>.");
       viewerName.textContent="No media selected";
       viewerPath.textContent="Paste a URL or choose a GitHub copy.";
       newTabBtn.disabled=true;copyBtn.disabled=true;
@@ -291,6 +304,11 @@
         choosePreview(url,name,ext,"github");
         showStatus("GitHub copy found and opened.","good");
       }catch(e){
+        showViewerMessage(
+          "📁",
+          "GitHub copy not found",
+          "There is no file at <code>"+FILE_FOLDER+"/"+name+"</code> in this repository."
+        );
         showStatus("No GitHub copy found at "+FILE_FOLDER+"/"+name+".","bad");
       }finally{
         openGitHubBtn.disabled=false;
@@ -343,12 +361,22 @@
             "bad"
           );
         }else{
+          showViewerMessage(
+            "⛔",
+            "Direct source unavailable",
+            "This network/browser cannot reach the secure media source, and there is no matching GitHub copy available."
+          );
           showStatus(
             "The secure version of this MKV stream could not be played, and no playable GitHub copy was available. The original HTTP stream cannot be embedded inside this HTTPS page.",
             "bad"
           );
         }
       }else{
+        showViewerMessage(
+          "⛔",
+          "Media unavailable",
+          "The secure source is unavailable, blocked on this network, unsupported by the browser, or no GitHub copy exists."
+        );
         showStatus(
           "The browser could not load this media. The secure source may be unavailable, blocked, or unsupported.",
           "bad"
