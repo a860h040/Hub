@@ -302,7 +302,7 @@
       font-size:28px;
     }
 
-    iframe,img{
+    iframe,img,video{
       width:100%;
       height:100%;
       min-height:578px;
@@ -315,6 +315,11 @@
       object-fit:contain;
       padding:15px;
       background:#f5f7fa;
+    }
+
+    video{
+      object-fit:contain;
+      background:#000;
     }
 
     .security-note{
@@ -339,7 +344,7 @@
       .search-card{position:static}
       .viewer-card{min-height:560px}
       .viewer{min-height:488px}
-      iframe,img{min-height:488px}
+      iframe,img,video{min-height:488px}
     }
 
     @media (max-width:480px){
@@ -368,7 +373,17 @@
       <div class="card search-card">
         <span class="eyebrow">File lookup</span>
         <h2>Open a file</h2>
-        <p class="lead">Enter the file number. This page reads files that have already been placed in the repository's <code>files</code> folder.</p>
+        <p class="lead">Paste your original server URL or enter the file number manually. The page extracts the final file number locally, then reads the synchronized copy from the repository's <code>files</code> folder.</p>
+
+        <div class="field">
+          <label for="serverUrl">Paste original server URL</label>
+          <input id="serverUrl" type="url" autocomplete="off" placeholder="https://lin.com/file/USERNAME/PASSWORD/5839" />
+        </div>
+
+        <div class="actions" style="margin-top:-7px;margin-bottom:17px;">
+          <button id="useUrlBtn" class="secondary" type="button">Use pasted URL</button>
+          <button id="clearUrlBtn" class="secondary" type="button">Clear URL</button>
+        </div>
 
         <div class="field">
           <label for="fileNumber">File number</label>
@@ -384,6 +399,9 @@
             <option value=".jpeg">JPEG (.jpeg)</option>
             <option value=".txt">Text (.txt)</option>
             <option value=".html">HTML (.html)</option>
+            <option value=".mp4">Video (.mp4)</option>
+            <option value=".webm">Video (.webm)</option>
+            <option value=".mov">Video (.mov)</option>
           </select>
         </div>
 
@@ -400,7 +418,7 @@
         </p>
 
         <p class="security-note">
-          No server username or password is stored in this page.
+          The pasted server URL is processed only in your browser. The page does not store the server username/password or use GitHub as a proxy to the blocked server.
         </p>
       </div>
 
@@ -427,6 +445,7 @@
 
           <iframe id="frame" title="File preview"></iframe>
           <img id="imagePreview" alt="File preview" />
+          <video id="videoPreview" controls playsinline preload="metadata"></video>
         </div>
       </div>
     </section>
@@ -435,6 +454,9 @@
   <script>
     const FILE_FOLDER = "files";
 
+    const serverUrl = document.getElementById("serverUrl");
+    const useUrlBtn = document.getElementById("useUrlBtn");
+    const clearUrlBtn = document.getElementById("clearUrlBtn");
     const fileNumber = document.getElementById("fileNumber");
     const extension = document.getElementById("extension");
     const openBtn = document.getElementById("openBtn");
@@ -442,6 +464,7 @@
     const statusBox = document.getElementById("status");
     const frame = document.getElementById("frame");
     const imagePreview = document.getElementById("imagePreview");
+    const videoPreview = document.getElementById("videoPreview");
     const emptyState = document.getElementById("emptyState");
     const viewerName = document.getElementById("viewerName");
     const viewerPath = document.getElementById("viewerPath");
@@ -476,6 +499,10 @@
       frame.style.display = "none";
       imagePreview.removeAttribute("src");
       imagePreview.style.display = "none";
+      videoPreview.pause();
+      videoPreview.removeAttribute("src");
+      videoPreview.load();
+      videoPreview.style.display = "none";
       emptyState.style.display = "grid";
       viewerName.textContent = "No file selected";
       viewerPath.textContent = "Choose a file number to begin.";
@@ -520,12 +547,19 @@
 
         const isImage = [".png", ".jpg", ".jpeg"].includes(ext.toLowerCase());
 
+        const isVideo = [".mp4", ".webm", ".mov"].includes(ext.toLowerCase());
+
         frame.style.display = "none";
         imagePreview.style.display = "none";
+        videoPreview.style.display = "none";
 
         if (isImage) {
           imagePreview.src = url + "?v=" + Date.now();
           imagePreview.style.display = "block";
+        } else if (isVideo) {
+          videoPreview.src = url + "?v=" + Date.now();
+          videoPreview.style.display = "block";
+          videoPreview.load();
         } else {
           frame.src = url + "?v=" + Date.now();
           frame.style.display = "block";
@@ -545,7 +579,49 @@
       }
     }
 
+    function extractFileNumberFromUrl() {
+      const value = serverUrl.value.trim();
+
+      if (!value) {
+        showStatus("Paste the original server URL first.", "bad");
+        serverUrl.focus();
+        return;
+      }
+
+      try {
+        const parsed = new URL(value);
+
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+          throw new Error("Unsupported URL");
+        }
+
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        if (!parts.length) throw new Error("No file number");
+
+        let last = decodeURIComponent(parts[parts.length - 1]).trim();
+        last = last.replace(/\.(pdf|png|jpe?g|txt|html|mp4|webm|mov)$/i, "");
+
+        if (!safeFileNumber(last)) {
+          throw new Error("Invalid file number");
+        }
+
+        fileNumber.value = last;
+        showStatus(
+          "File number " + last + " extracted locally. Your server username/password were not saved or sent to GitHub.",
+          "good"
+        );
+      } catch (error) {
+        showStatus("I could not read a valid file number from that URL.", "bad");
+      }
+    }
+
+    function clearPastedUrl() {
+      serverUrl.value = "";
+      serverUrl.focus();
+    }
+
     function clearAll() {
+      serverUrl.value = "";
       fileNumber.value = "";
       extension.value = ".pdf";
       hideStatus();
@@ -569,10 +645,16 @@
       a.remove();
     }
 
+    useUrlBtn.addEventListener("click", extractFileNumberFromUrl);
+    clearUrlBtn.addEventListener("click", clearPastedUrl);
     openBtn.addEventListener("click", openFile);
     clearBtn.addEventListener("click", clearAll);
     newTabBtn.addEventListener("click", openNewTab);
     downloadBtn.addEventListener("click", downloadCurrent);
+
+    serverUrl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") extractFileNumberFromUrl();
+    });
 
     fileNumber.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openFile();
