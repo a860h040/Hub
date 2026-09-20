@@ -402,6 +402,7 @@
             <option value=".mp4">Video (.mp4)</option>
             <option value=".webm">Video (.webm)</option>
             <option value=".mov">Video (.mov)</option>
+            <option value=".mkv">Video (.mkv)</option>
           </select>
         </div>
 
@@ -547,7 +548,7 @@
 
         const isImage = [".png", ".jpg", ".jpeg"].includes(ext.toLowerCase());
 
-        const isVideo = [".mp4", ".webm", ".mov"].includes(ext.toLowerCase());
+        const isVideo = [".mp4", ".webm", ".mov", ".mkv"].includes(ext.toLowerCase());
 
         frame.style.display = "none";
         imagePreview.style.display = "none";
@@ -599,7 +600,7 @@
         if (!parts.length) throw new Error("No file number");
 
         let last = decodeURIComponent(parts[parts.length - 1]).trim();
-        last = last.replace(/\.(pdf|png|jpe?g|txt|html|mp4|webm|mov)$/i, "");
+        last = last.replace(/\.(pdf|png|jpe?g|txt|html|mp4|webm|mov|mkv)$/i, "");
 
         if (!safeFileNumber(last)) {
           throw new Error("Invalid file number");
